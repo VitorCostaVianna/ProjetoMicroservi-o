@@ -1,0 +1,143 @@
+services:
+  zipkin-server:
+    image: openzipkin/zipkin:latest
+    ports:
+      - 9411:9411
+    restart: always
+    depends_on:
+      - rabbit-mq
+    environment:
+      - RABBIT_URI=amqp://guest:guest@rabbit-mq:5672
+    networks:
+      - vitor-network
+  
+  rabbit-mq:
+    image: rabbitmq:latest
+    ports:
+      - 5672:5672
+      - 15672:15672
+    networks:
+      - vitor-network
+
+  naming-server:
+    image: vitorcosta14/naming-server:0.0.1-SNAPSHOT
+    ports:
+      - 8761:8761
+    networks:
+      - vitor-network
+
+  api-gateway:
+    image: vitorcosta14/api-gateway:0.0.1-SNAPSHOT
+    ports:
+      - 8765:8765
+    depends_on:
+      - naming-server
+      - rabbit-mq
+    environment:
+      - MANAGEMENT.TRACING.ZIPKIN.ENDPOINT=http://zipkin-server:9411/
+      - EUREKA.CLIENT.SERVICE-URL.DEFAULTZONE=http://naming-server:8761/eureka
+      - RABBIT_URI=amqp://guest:guest@rabbit-mq:5672
+      - SPRING_RABBITMQ_HOST=rabbit-mq
+      - SPRING_ZIPKIN_SENDER_TYPE=rabbit
+    networks:
+      - vitor-network
+
+  cambio-db:
+    image: mysql:latest
+    restart: always
+    environment:
+      - TZ=America/Sao_Paulo
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_USER=docker
+      - MYSQL_PASSWORD=root
+      - MYSQL_DATABASE=cambio_service
+      - MYSQL_ROOT_HOST=%
+    ports:
+      - 3308:3306
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    networks:
+      - vitor-network
+
+  book-db:
+    image: mysql:latest
+    restart: always
+    environment:
+      - TZ=AMERICA/Belo_Horizonte
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_USER=docker
+      - MYSQL_PASSWORD=root
+      - MYSQL_DATABASE=book_service
+      - MYSQL_ROOT_HOST=% # vai permitir de diferentes hosts
+    ports:
+      - 3310:3306
+    networks:
+      - vitor-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  cambio-service:
+    image: vitorcosta14/cambio-service
+    restart: always
+    build: 
+      context: .
+      dockerfile: cambio-service/cambio-service/Dockerfile
+    environment:
+      TZ: AMERICA/Belo_Horizonte
+      MANAGEMENT.TRACING.ZIPKIN.ENDPOINT: http://zipkin-server:9411/
+      EUREKA.CLIENT.SERVICE-URL.DEFAULTZONE: http://naming-server:8761/eureka
+      SPRING.DATASOURCE.URL: jdbc:mysql://cambio-db:3306/cambio_service?useSSL=false&serverTimezone=UTC&enabledTLSProtocols=TLSv1.3&allowPublicKeyRetrieval=true
+      SPRING.DATASOURCE.USERNAME: docker
+      SPRING.DATASOURCE.PASSWORD: root
+      SPRING.FLYWAY.URL: jdbc:mysql://cambio-db:3306/cambio_service?useSSL=false&serverTimezone=UTC&enabledTLSProtocols=TLSv1.3&allowPublicKeyRetrieval=true
+      SPRING.FLYWAY.USER: docker
+      SPRING.FLYWAY.PASSWORD: root
+      RABBIT_URI: amqp://guest:guest@rabbit-mq:5672
+      SPRING_RABBITMQ_HOST: rabbit-mq
+      SPRING_ZIPKIN_SENDER_TYPE: rabbit
+    ports:
+      - 8000:8000
+    depends_on:
+      - naming-server
+      - cambio-db
+      - rabbit-mq
+    networks:
+      - vitor-network
+
+  book-service:
+    image: vitorcosta14/book-service
+    restart: always
+    build: 
+      context: .
+      dockerfile: demo/Dockerfile
+    environment:
+      TZ: AMERICA/Belo_Horizonte
+      MANAGEMENT.TRACING.ZIPKIN.ENDPOINT: http://zipkin-server:9411/
+      EUREKA.CLIENT.SERVICE-URL.DEFAULTZONE: http://naming-server:8761/eureka
+      SPRING.DATASOURCE.URL: jdbc:mysql://book-db:3306/book_service?useSSL=false&serverTimezone=UTC&enabledTLSProtocols=TLSv1.3&allowPublicKeyRetrieval=true
+      SPRING.DATASOURCE.USERNAME: docker
+      SPRING.DATASOURCE.PASSWORD: root
+      SPRING.FLYWAY.URL: jdbc:mysql://book-db:3306/book_service?useSSL=false&serverTimezone=UTC&enabledTLSProtocols=TLSv1.3&allowPublicKeyRetrieval=true
+      SPRING.FLYWAY.USER: docker
+      SPRING.FLYWAY.PASSWORD: root
+      RABBIT_URI: amqp://guest:guest@rabbit-mq:5672
+      SPRING_RABBITMQ_HOST: rabbit-mq
+      SPRING_ZIPKIN_SENDER_TYPE: rabbit
+    ports:
+      - 8100:8100
+    depends_on:
+      - naming-server
+      - book-db
+      - rabbit-mq
+    networks:
+      - vitor-network
+
+networks:
+  vitor-network:
+    driver: bridge

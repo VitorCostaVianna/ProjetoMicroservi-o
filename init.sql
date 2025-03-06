@@ -1,0 +1,3 @@
+CREATE USER 'docker'@'%' IDENTIFIED BY 'root';
+GRANT ALL PRIVILEGES ON *.* TO 'docker'@'%';
+FLUSH PRIVILEGES;
